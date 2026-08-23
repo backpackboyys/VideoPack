@@ -7,10 +7,14 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "client": "cd client && npm start",
-    "build": "cd client && npm run build",
-    "install-all": "npm install && cd client && npm install"
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "install-all": "npm install && npm --prefix client install"
   },
-  "keywords": ["video", "upload", "payment"],
+  "keywords": [
+    "video",
+    "upload",
+    "payment"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
