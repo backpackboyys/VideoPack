@@ -100,7 +100,8 @@ router.post('/login', [
         id: user.id,
         username: user.username,
         email: user.email,
-        age_verified: user.age_verified
+        age_verified: user.age_verified,
+        role: user.role
       }
     });
   } catch (err) {
