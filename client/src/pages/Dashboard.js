@@ -41,6 +41,9 @@ function Dashboard({ user, onLogout }) {
           <Link to="/gallery">Browse Videos</Link>
           <Link to="/upload">Upload Video</Link>
           <Link to="/profile">Profile</Link>
+          {user?.role === 'admin' && (
+          <Link to="/admin">Admin Dashboard</Link>
+          )}
           <button onClick={handleLogout}>Logout</button>
         </div>
       </nav>
