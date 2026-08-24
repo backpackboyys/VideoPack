@@ -66,7 +66,7 @@ router.post('/login', [
 
     // Find user
     const [users] = await conn.execute(
-      'SELECT id, username, email, password_hash, age_verified FROM users WHERE email = ?',
+      'SELECT id, username, email, password_hash, age_verified, role FROM users WHERE email = ?',
       [email]
     );
 
