@@ -78,8 +78,9 @@ router.get('/', optionalAuth, async (req, res) => {
     const conn = await db.getConnection();
 
     const [videos] = await conn.execute(`
-      SELECT v.id, v.title, v.description, v.thumbnail_path, v.video_type, v.price, 
-             v.view_count, u.username, v.created_at
+      SELECT v.id, v.title, v.description, v.file_path, v.thumbnail_path,
+         v.video_type, v.price, v.view_count, v.approval_status,
+         u.username, v.created_at
       FROM videos v
       JOIN users u ON v.user_id = u.id
       WHERE v.is_approved = TRUE
