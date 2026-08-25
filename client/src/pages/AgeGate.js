@@ -1,39 +1,50 @@
 import React, { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import "../App.css";
 
 function AgeGate() {
-  const [loading, setLoading] = useState(false);
-
   const navigate = useNavigate();
   const location = useLocation();
 
-  const destination =
-    new URLSearchParams(location.search).get(
-      "next"
-    ) || "/login";
+  const [loading, setLoading] = useState(false);
+  const [rejected, setRejected] = useState(false);
+
+  const searchParams = new URLSearchParams(
+    location.search
+  );
+
+  const nextPath =
+    searchParams.get("next") || "/login";
 
   const handleVerifyAge = async () => {
     setLoading(true);
 
     try {
-      await axios.post("/api/auth/age-gate", {
-        confirmed: true
-      });
+      await axios.post(
+        "/api/auth/age-gate",
+        {
+          confirmed: true
+        },
+        {
+          withCredentials: true
+        }
+      );
 
       sessionStorage.setItem(
         "age_gate_passed",
         "true"
       );
 
-      navigate(destination, {
+      navigate(nextPath, {
         replace: true
       });
     } catch (error) {
+      console.error("Age verification error:", error);
+
       alert(
         error.response?.data?.error ||
-          "Age verification failed"
+          "Age verification failed. Please try again."
       );
     } finally {
       setLoading(false);
@@ -45,13 +56,27 @@ function AgeGate() {
       "age_gate_passed"
     );
 
-    alert(
-      "You must be 18 or older to use this platform."
-    );
-
-    window.location.href =
-      "about:blank";
+    setRejected(true);
   };
+
+  if (rejected) {
+    return (
+      <div className="age-gate-container">
+        <div className="age-gate-card">
+          <h1>Access Denied</h1>
+
+          <p>
+            You must be at least 18 years old to
+            access this platform.
+          </p>
+
+          <p>
+            Please close this browser tab.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="age-gate-container">
@@ -65,13 +90,15 @@ function AgeGate() {
         </p>
 
         <p>
-          By continuing, you confirm that you are
-          at least 18 years old and agree to follow
-          the site's terms and applicable laws.
+          By selecting “I’m 18 or Older,” you confirm
+          that you are at least 18 years old and agree
+          to follow the platform rules and applicable
+          laws.
         </p>
 
         <div className="age-gate-buttons">
           <button
+            type="button"
             className="btn-no"
             onClick={handleRejectAge}
             disabled={loading}
@@ -80,6 +107,7 @@ function AgeGate() {
           </button>
 
           <button
+            type="button"
             className="btn-yes"
             onClick={handleVerifyAge}
             disabled={loading}
