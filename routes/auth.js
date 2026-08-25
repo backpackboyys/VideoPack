@@ -11,34 +11,54 @@ const db = require("../config/database");
 const router = express.Router();
 
 const AGE_GATE_COOKIE = "age_gate";
-const AGE_GATE_MAX_AGE = 12 * 60 * 60 * 1000;
+const AGE_GATE_DURATION =
+  12 * 60 * 60 * 1000;
 
-function getCookie(req, name) {
-  const cookies = req.headers.cookie
-    ? req.headers.cookie.split(";")
-    : [];
+function getCookie(req, cookieName) {
+  const cookieHeader = req.headers.cookie;
 
-  const cookie = cookies.find((item) =>
-    item.trim().startsWith(`${name}=`)
-  );
+  if (!cookieHeader) {
+    return null;
+  }
 
-  return cookie
-    ? decodeURIComponent(
-        cookie.trim().substring(name.length + 1)
-      )
-    : null;
+  const cookies = cookieHeader.split(";");
+
+  for (const cookie of cookies) {
+    const separatorIndex = cookie.indexOf("=");
+
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const name = cookie
+      .slice(0, separatorIndex)
+      .trim();
+
+    const value = cookie
+      .slice(separatorIndex + 1)
+      .trim();
+
+    if (name === cookieName) {
+      return decodeURIComponent(value);
+    }
+  }
+
+  return null;
 }
 
 function hasValidAgeGate(req) {
-  const token = getCookie(req, AGE_GATE_COOKIE);
+  const ageGateToken = getCookie(
+    req,
+    AGE_GATE_COOKIE
+  );
 
-  if (!token) {
+  if (!ageGateToken) {
     return false;
   }
 
   try {
     const payload = jwt.verify(
-      token,
+      ageGateToken,
       process.env.JWT_SECRET
     );
 
@@ -54,23 +74,15 @@ function hasValidAgeGate(req) {
 function requireAgeGate(req, res, next) {
   if (!hasValidAgeGate(req)) {
     return res.status(403).json({
-      error: "Age verification is required first"
+      error:
+        "Age verification is required before authentication."
     });
   }
 
   next();
 }
 
-// Age gate must be completed before authentication.
-router.post("/age-gate", (req, res) => {
-  const { confirmed } = req.body;
-
-  if (confirmed !== true) {
-    return res.status(403).json({
-      error: "Age verification was not accepted"
-    });
-  }
-
+function setAgeGateCookie(res) {
   const token = jwt.sign(
     {
       purpose: "age-gate",
@@ -82,27 +94,67 @@ router.post("/age-gate", (req, res) => {
     }
   );
 
-  res.cookie(AGE_GATE_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: AGE_GATE_MAX_AGE,
-    path: "/"
-  });
+  const isProduction =
+    process.env.NODE_ENV === "production";
+
+  const cookieParts = [
+    `${AGE_GATE_COOKIE}=${encodeURIComponent(
+      token
+    )}`,
+    "HttpOnly",
+    "Path=/",
+    "SameSite=Lax",
+    `Max-Age=${AGE_GATE_DURATION / 1000}`
+  ];
+
+  if (isProduction) {
+    cookieParts.push("Secure");
+  }
+
+  res.setHeader(
+    "Set-Cookie",
+    cookieParts.join("; ")
+  );
+}
+
+// Public age-gate endpoint.
+router.post("/age-gate", (req, res) => {
+  if (req.body?.confirmed !== true) {
+    return res.status(403).json({
+      error:
+        "You must confirm that you are at least 18 years old."
+    });
+  }
+
+  setAgeGateCookie(res);
 
   res.json({
-    message: "Age verification accepted"
+    message: "Age verification accepted."
   });
 });
 
-// Register.
+// Optional status endpoint for troubleshooting.
+router.get("/age-gate/status", (req, res) => {
+  res.json({
+    verified: hasValidAgeGate(req)
+  });
+});
+
+// Registration.
 router.post(
   "/register",
   requireAgeGate,
   [
-    body("username").isLength({ min: 3 }).trim(),
-    body("email").isEmail().normalizeEmail(),
-    body("password").isLength({ min: 6 })
+    body("username")
+      .isLength({ min: 3 })
+      .trim(),
+
+    body("email")
+      .isEmail()
+      .normalizeEmail(),
+
+    body("password")
+      .isLength({ min: 6 })
   ],
   async (req, res) => {
     let conn;
@@ -124,25 +176,24 @@ router.post(
 
       conn = await db.getConnection();
 
-      const [existingUser] = await conn.execute(
-        `
-        SELECT id
-        FROM users
-        WHERE email = ? OR username = ?
-        `,
-        [email, username]
-      );
+      const [existingUsers] =
+        await conn.execute(
+          `
+          SELECT id
+          FROM users
+          WHERE email = ? OR username = ?
+          `,
+          [email, username]
+        );
 
-      if (existingUser.length > 0) {
+      if (existingUsers.length > 0) {
         return res.status(400).json({
-          error: "User already exists"
+          error: "User already exists."
         });
       }
 
-      const hashedPassword = await bcrypt.hash(
-        password,
-        10
-      );
+      const passwordHash =
+        await bcrypt.hash(password, 10);
 
       await conn.execute(
         `
@@ -158,19 +209,22 @@ router.post(
         [
           username,
           email,
-          hashedPassword
+          passwordHash
         ]
       );
 
       res.status(201).json({
         message:
-          "User registered successfully. Please log in."
+          "Registration successful. Please log in."
       });
     } catch (error) {
-      console.error("Registration error:", error);
+      console.error(
+        "Registration error:",
+        error
+      );
 
       res.status(500).json({
-        error: "Registration failed"
+        error: "Registration failed."
       });
     } finally {
       if (conn) {
@@ -185,7 +239,10 @@ router.post(
   "/login",
   requireAgeGate,
   [
-    body("email").isEmail().normalizeEmail(),
+    body("email")
+      .isEmail()
+      .normalizeEmail(),
+
     body("password").exists()
   ],
   async (req, res) => {
@@ -224,21 +281,21 @@ router.post(
 
       if (users.length === 0) {
         return res.status(401).json({
-          error: "Invalid credentials"
+          error: "Invalid credentials."
         });
       }
 
       const user = users[0];
 
-      const passwordMatch =
+      const passwordMatches =
         await bcrypt.compare(
           password,
           user.password_hash
         );
 
-      if (!passwordMatch) {
+      if (!passwordMatches) {
         return res.status(401).json({
-          error: "Invalid credentials"
+          error: "Invalid credentials."
         });
       }
 
@@ -278,7 +335,7 @@ router.post(
       console.error("Login error:", error);
 
       res.status(500).json({
-        error: "Login failed"
+        error: "Login failed."
       });
     } finally {
       if (conn) {
