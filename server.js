@@ -3,6 +3,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const path = require("path");
 const fs = require("fs");
+const cookieParser = require("cookie-parser");
 
 dotenv.config();
 
@@ -33,6 +34,7 @@ app.use(
 
 const db = require("./config/database");
 
+app.use(cookieParser());
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/videos", require("./routes/videos"));
 app.use("/api/users", require("./routes/users"));
