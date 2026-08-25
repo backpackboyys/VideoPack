@@ -1,86 +1,179 @@
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const { authMiddleware, optionalAuth } = require('../middleware/auth');
-const db = require('../config/database');
+const express = require("express");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const { v4: uuidv4 } = require("uuid");
+
+const {
+  authMiddleware,
+  optionalAuth
+} = require("../middleware/auth");
+
+const db = require("../config/database");
 
 const router = express.Router();
 
-// Configure multer for video uploads
+const uploadsRoot = path.resolve(
+  process.env.UPLOADS_PATH ||
+    "/home/u921816028/domains/backpackboyys.com/uploads"
+);
+
+const videosDirectory = path.join(
+  uploadsRoot,
+  "videos"
+);
+
+fs.mkdirSync(videosDirectory, {
+  recursive: true
+});
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../uploads/videos'));
+    cb(null, videosDirectory);
   },
+
   filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+    const extension = path.extname(
+      file.originalname
+    ).toLowerCase();
+
+    const uniqueName = `${uuidv4()}${extension}`;
+
     cb(null, uniqueName);
   }
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5000000000 }, // 5GB
+
+  limits: {
+    fileSize: 5000000000
+  },
+
   fileFilter: (req, file, cb) => {
-    const allowedMimes = ['video/mp4', 'video/mpeg', 'video/webm', 'video/quicktime'];
+    const allowedMimes = [
+      "video/mp4",
+      "video/mpeg",
+      "video/webm",
+      "video/quicktime"
+    ];
+
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type'));
+      cb(new Error("Invalid file type"));
     }
   }
 });
 
-// Upload video
-router.post('/upload', authMiddleware, upload.single('video'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file provided' });
+// Upload a video.
+router.post(
+  "/upload",
+  authMiddleware,
+  upload.single("video"),
+  async (req, res) => {
+    let conn;
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: "No video file provided"
+        });
+      }
+
+      const {
+        title,
+        description,
+        videoType,
+        price
+      } = req.body;
+
+      conn = await db.getConnection();
+
+      const [users] = await conn.execute(
+        "SELECT age_verified FROM users WHERE id = ?",
+        [req.user.id]
+      );
+
+      if (!users[0]?.age_verified) {
+        await fs.promises.unlink(req.file.path).catch(() => {});
+
+        return res.status(403).json({
+          error:
+            "Age verification required before uploading"
+        });
+      }
+
+      const [result] = await conn.execute(
+        `
+        INSERT INTO videos
+          (
+            user_id,
+            title,
+            description,
+            file_path,
+            video_type,
+            price,
+            approval_status,
+            is_approved
+          )
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', 0)
+        `,
+        [
+          req.user.id,
+          title || null,
+          description || null,
+          req.file.filename,
+          videoType || "free",
+          price || null
+        ]
+      );
+
+      res.status(201).json({
+        message:
+          "Video uploaded successfully. Awaiting moderation approval.",
+        videoId: result.insertId,
+        status: "pending",
+        fileName: req.file.filename
+      });
+    } catch (error) {
+      console.error("Video upload error:", error);
+
+      if (req.file?.path) {
+        await fs.promises.unlink(req.file.path).catch(() => {});
+      }
+
+      res.status(500).json({
+        error: "Upload failed"
+      });
+    } finally {
+      if (conn) {
+        conn.release();
+      }
     }
-
-    const { title, description, videoType, price } = req.body;
-    const conn = await db.getConnection();
-
-    // Check if user has verified age
-    const [user] = await conn.execute(
-      'SELECT age_verified FROM users WHERE id = ?',
-      [req.user.id]
-    );
-
-    if (!user[0]?.age_verified) {
-      conn.release();
-      return res.status(403).json({ error: 'Age verification required before uploading' });
-    }
-
-    // Insert video record
-    const [result] = await conn.execute(
-      `INSERT INTO videos (user_id, title, description, file_path, video_type, price, approval_status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-      [req.user.id, title, description, req.file.filename, videoType || 'free', price || null]
-    );
-
-    conn.release();
-
-    res.status(201).json({
-      message: 'Video uploaded successfully. Awaiting moderation approval.',
-      videoId: result.insertId,
-      status: 'pending'
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Upload failed' });
   }
-});
+);
 
-// Get all approved videos
-router.get('/', optionalAuth, async (req, res) => {
+// Get all approved videos.
+router.get("/", optionalAuth, async (req, res) => {
+  let conn;
+
   try {
-    const conn = await db.getConnection();
+    conn = await db.getConnection();
 
     const [videos] = await conn.execute(`
-      SELECT v.id, v.title, v.description, v.file_path, v.thumbnail_path,
-         v.video_type, v.price, v.view_count, v.approval_status,
-         u.username, v.created_at
+      SELECT
+        v.id,
+        v.title,
+        v.description,
+        v.file_path,
+        v.thumbnail_path,
+        v.video_type,
+        v.price,
+        v.view_count,
+        v.approval_status,
+        u.username,
+        v.created_at
       FROM videos v
       JOIN users u ON v.user_id = u.id
       WHERE v.is_approved = TRUE
@@ -88,70 +181,126 @@ router.get('/', optionalAuth, async (req, res) => {
       LIMIT 50
     `);
 
-    conn.release();
-
     res.json(videos);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch videos' });
+  } catch (error) {
+    console.error("Fetch approved videos error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch videos"
+    });
+  } finally {
+    if (conn) {
+      conn.release();
+    }
   }
 });
 
-// Get single video
-router.get('/:id', optionalAuth, async (req, res) => {
-  try {
-    const conn = await db.getConnection();
+// Get the current user's videos.
+router.get(
+  "/user/:userId",
+  authMiddleware,
+  async (req, res) => {
+    let conn;
 
-    const [videos] = await conn.execute(`
-      SELECT v.*, u.username, u.profile_picture
+    try {
+      if (
+        String(req.user.id) !== String(req.params.userId) &&
+        req.user.role !== "admin"
+      ) {
+        return res.status(403).json({
+          error: "You are not allowed to view these videos"
+        });
+      }
+
+      conn = await db.getConnection();
+
+      const [videos] = await conn.execute(
+        `
+        SELECT
+          id,
+          title,
+          description,
+          file_path,
+          thumbnail_path,
+          approval_status,
+          view_count,
+          created_at
+        FROM videos
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        `,
+        [req.params.userId]
+      );
+
+      res.json(videos);
+    } catch (error) {
+      console.error("Fetch user videos error:", error);
+
+      res.status(500).json({
+        error: "Failed to fetch user videos"
+      });
+    } finally {
+      if (conn) {
+        conn.release();
+      }
+    }
+  }
+);
+
+// Get one video.
+router.get("/:id", optionalAuth, async (req, res) => {
+  let conn;
+
+  try {
+    conn = await db.getConnection();
+
+    const [videos] = await conn.execute(
+      `
+      SELECT
+        v.*,
+        u.username,
+        u.profile_picture
       FROM videos v
       JOIN users u ON v.user_id = u.id
       WHERE v.id = ?
-    `, [req.params.id]);
+      `,
+      [req.params.id]
+    );
 
     if (videos.length === 0) {
-      conn.release();
-      return res.status(404).json({ error: 'Video not found' });
+      return res.status(404).json({
+        error: "Video not found"
+      });
     }
 
     const video = videos[0];
 
-    // Check if user can view the video
     if (!video.is_approved) {
-      conn.release();
-      return res.status(403).json({ error: 'Video not approved yet' });
+      return res.status(403).json({
+        error: "Video not approved yet"
+      });
     }
 
-    // Update view count
-    await conn.execute('UPDATE videos SET view_count = view_count + 1 WHERE id = ?', [req.params.id]);
-
-    conn.release();
+    await conn.execute(
+      `
+      UPDATE videos
+      SET view_count = view_count + 1
+      WHERE id = ?
+      `,
+      [req.params.id]
+    );
 
     res.json(video);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch video' });
-  }
-});
+  } catch (error) {
+    console.error("Fetch single video error:", error);
 
-// Get user's videos
-router.get('/user/:userId', async (req, res) => {
-  try {
-    const conn = await db.getConnection();
-
-    const [videos] = await conn.execute(`
-      SELECT id, title, description, thumbnail_path, approval_status, view_count, created_at
-      FROM videos
-      WHERE user_id = ?
-      ORDER BY created_at DESC
-    `, [req.params.userId]);
-
-    conn.release();
-
-    res.json(videos);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch user videos' });
+    res.status(500).json({
+      error: "Failed to fetch video"
+    });
+  } finally {
+    if (conn) {
+      conn.release();
+    }
   }
 });
 
