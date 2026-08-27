@@ -4,7 +4,6 @@ const fs = require("fs");
 const bcrypt = require("bcryptjs");
 
 const router = express.Router();
-
 const db = require("../config/database");
 const adminMiddleware = require("../middleware/adminMiddleware");
 
@@ -12,7 +11,6 @@ const uploadsRoot = path.resolve(
   process.env.UPLOADS_PATH ||
     "/home/u921816028/domains/backpackboyys.com/uploads"
 );
-
 const videosDirectory = path.join(uploadsRoot, "videos");
 const thumbnailsDirectory = path.join(uploadsRoot, "thumbnails");
 
@@ -94,7 +92,7 @@ async function isLastActiveAdmin(userId) {
   return Number(rows[0].count) === 0;
 }
 
-// Get all videos for the admin dashboard.
+// Video management
 router.get("/videos", async (req, res) => {
   try {
     const [videos] = await db.execute(`
@@ -111,7 +109,6 @@ router.get("/videos", async (req, res) => {
   }
 });
 
-// Get videos waiting for approval.
 router.get("/videos/pending", async (req, res) => {
   try {
     const [videos] = await db.execute(`
@@ -129,7 +126,6 @@ router.get("/videos/pending", async (req, res) => {
   }
 });
 
-// Approve a video.
 router.patch("/videos/:id/approve", async (req, res) => {
   try {
     const [result] = await db.execute(
@@ -150,7 +146,6 @@ router.patch("/videos/:id/approve", async (req, res) => {
   }
 });
 
-// Reject a video.
 router.patch("/videos/:id/reject", async (req, res) => {
   try {
     const reason = req.body.reason || "Rejected by administrator";
@@ -175,7 +170,6 @@ router.patch("/videos/:id/reject", async (req, res) => {
   }
 });
 
-// Permanently delete a video and its uploaded files.
 router.delete("/videos/:id", async (req, res) => {
   let conn;
 
@@ -225,15 +219,15 @@ router.delete("/videos/:id", async (req, res) => {
   }
 });
 
-// Get all user accounts. Password hashes are never returned.
+// User management
 router.get("/users", async (req, res) => {
   try {
-    const [users] = await db.execute(
-      `SELECT id, username, email, role, age_verified,
-              created_at, updated_at, deleted_at
-       FROM users
-       ORDER BY id DESC`
-    );
+    const [users] = await db.execute(`
+      SELECT id, username, email, role, age_verified,
+             created_at, updated_at, deleted_at
+      FROM users
+      ORDER BY id DESC
+    `);
 
     res.json({ users: users.map(publicUser) });
   } catch (error) {
@@ -242,7 +236,6 @@ router.get("/users", async (req, res) => {
   }
 });
 
-// Create a user account.
 router.post("/users", async (req, res) => {
   try {
     const username = String(req.body.username || "").trim();
@@ -267,7 +260,7 @@ router.post("/users", async (req, res) => {
       return res.status(400).json({ error: "Invalid user role" });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await db.execute(
       `INSERT INTO users
@@ -288,7 +281,6 @@ router.post("/users", async (req, res) => {
   }
 });
 
-// Update account details, role, password, or active status.
 router.patch("/users/:id", async (req, res) => {
   try {
     const userId = Number(req.params.id);
@@ -349,7 +341,7 @@ router.patch("/users/:id", async (req, res) => {
         return res.status(400).json({ error: "Password must be at least 8 characters" });
       }
       updates.push("password_hash = ?");
-      values.push(await bcrypt.hash(password, 12));
+      values.push(await bcrypt.hash(password, 10));
     }
 
     if (req.body.active !== undefined) {
@@ -390,7 +382,6 @@ router.patch("/users/:id", async (req, res) => {
   }
 });
 
-// Permanently delete an account. Deactivation is preferred for normal use.
 router.delete("/users/:id", async (req, res) => {
   try {
     const userId = Number(req.params.id);
