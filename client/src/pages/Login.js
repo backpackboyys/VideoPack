@@ -33,38 +33,49 @@ function Login({ setUser }) {
   };
 
   return (
-    <div className="form-container">
-      <h2>Login</h2>
-      {error && <div className="error">{error}</div>}
-      
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Email:</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+    <div className="login-page">
+      <section className="login-banner" aria-label="backpackboyys.com introduction">
+        <div className="login-banner__overlay">
+          <h1>backpackboyys.com</h1>
+          <p>Paid and Slaid</p>
         </div>
+      </section>
 
-        <div className="form-group">
-          <label>Password:</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+      <div className="form-container">
+        <h2>Login</h2>
+        {error && <div className="error">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="login-email">Email:</label>
+            <input
+              id="login-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="login-password">Password:</label>
+            <input
+              id="login-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <button type="submit" className="btn" disabled={loading}>
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+
+        <div className="link-text">
+          Don't have an account? <Link to="/register">Register here</Link>
         </div>
-
-        <button type="submit" className="btn" disabled={loading}>
-          {loading ? 'Logging in...' : 'Login'}
-        </button>
-      </form>
-
-      <div className="link-text">
-        Don't have an account? <Link to="/register">Register here</Link>
       </div>
     </div>
   );
