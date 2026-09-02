@@ -18,8 +18,8 @@ function VideoUpload({ user }) {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      if (selectedFile.size > 5000000000) {
-        setError('File size must be less than 5GB');
+      if (selectedFile.size > 10000000000) {
+        setError('File size must be less than 10GB');
         return;
       }
       setFile(selectedFile);
