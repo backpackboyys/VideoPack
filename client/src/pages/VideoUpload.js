@@ -6,24 +6,20 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import '../App.css';
 
 const MAX_FILE_SIZE = 5000000000;
-
 const FFMPEG_CORE_VERSION = '0.12.10';
 const FFMPEG_CORE_BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
-
   const units = ['B', 'KB', 'MB', 'GB'];
   const unitIndex = Math.floor(Math.log(bytes) / Math.log(1024));
   const value = bytes / Math.pow(1024, unitIndex);
-
   return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
 }
 
 function getOutputName(fileName) {
   const nameWithoutExtension = fileName.replace(/\.[^/.]+$/, '');
   const safeName = nameWithoutExtension.replace(/[^a-zA-Z0-9_-]/g, '-');
-
   return `${safeName || 'video'}-compressed.mp4`;
 }
 
@@ -44,7 +40,6 @@ function VideoUpload({ user }) {
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-
     if (!selectedFile) return;
 
     if (!selectedFile.type.startsWith('video/')) {
@@ -77,21 +72,14 @@ function VideoUpload({ user }) {
   const handleDrop = (e) => {
     e.preventDefault();
     e.currentTarget.classList.remove('dragover');
-
     const droppedFile = e.dataTransfer.files[0];
-
-    if (droppedFile) {
-      handleFileChange({ target: { files: [droppedFile] } });
-    }
+    if (droppedFile) handleFileChange({ target: { files: [droppedFile] } });
   };
 
   const loadFfmpeg = async () => {
-    if (ffmpegRef.current) {
-      return ffmpegRef.current;
-    }
+    if (ffmpegRef.current) return ffmpegRef.current;
 
     const ffmpeg = new FFmpeg();
-
     ffmpeg.on('progress', ({ progress }) => {
       setCompressionProgress(Math.min(100, Math.round(progress * 100)));
     });
@@ -99,18 +87,11 @@ function VideoUpload({ user }) {
     setStatusMessage('Loading browser video compressor...');
 
     await ffmpeg.load({
-      coreURL: await toBlobURL(
-        `${FFMPEG_CORE_BASE_URL}/ffmpeg-core.js`,
-        'text/javascript'
-      ),
-      wasmURL: await toBlobURL(
-        `${FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm`,
-        'application/wasm'
-      )
+      coreURL: await toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm`, 'application/wasm')
     });
 
     ffmpegRef.current = ffmpeg;
-
     return ffmpeg;
   };
 
@@ -125,34 +106,21 @@ function VideoUpload({ user }) {
     await ffmpeg.writeFile(inputName, await fetchFile(inputFile));
 
     await ffmpeg.exec([
-      '-i',
-      inputName,
-      '-vf',
-      "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease",
-      '-c:v',
-      'libx264',
-      '-preset',
-      'ultrafast',
-      '-crf',
-      '28',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '96k',
-      '-pix_fmt',
-      'yuv420p',
-      '-movflags',
-      '+faststart',
-      '-y',
-      outputName
+      '-i', inputName,
+      '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease",
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-crf', '31',
+      '-c:a', 'aac',
+      '-b:a', '64k',
+      '-ac', '2',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-y', outputName
     ]);
 
     const outputData = await ffmpeg.readFile(outputName);
-    const compressedFile = new File(
-      [outputData.buffer],
-      outputName,
-      { type: 'video/mp4' }
-    );
+    const compressedFile = new File([outputData], outputName, { type: 'video/mp4' });
 
     await ffmpeg.deleteFile(inputName).catch(() => {});
     await ffmpeg.deleteFile(outputName).catch(() => {});
@@ -182,44 +150,37 @@ function VideoUpload({ user }) {
 
     try {
       const compressedFile = await compressVideo(file);
-      const savedPercentage = Math.round(
-        ((file.size - compressedFile.size) / file.size) * 100
-      );
+      const useCompressedFile = compressedFile.size < file.size;
+      const fileToUpload = useCompressedFile ? compressedFile : file;
+      const savedBytes = file.size - fileToUpload.size;
+      const savedPercentage = Math.max(0, Math.round((savedBytes / file.size) * 100));
 
       const formData = new FormData();
       formData.append('title', title);
       formData.append('description', description);
       formData.append('videoType', videoType);
       formData.append('price', price || 0);
-      formData.append('video', compressedFile);
+      formData.append('video', fileToUpload);
 
       setStatusMessage(
-        `Compression complete: ${formatBytes(file.size)} to ${formatBytes(compressedFile.size)} (${savedPercentage}% smaller). Uploading...`
+        useCompressedFile
+          ? `Compression complete: ${formatBytes(file.size)} to ${formatBytes(fileToUpload.size)} (${savedPercentage}% smaller). Uploading...`
+          : 'The original file was already smaller than the compressed version. Uploading the original file...'
       );
 
       const token = localStorage.getItem('token');
 
       await axios.post('/api/videos/upload', formData, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
+        headers: { Authorization: `Bearer ${token}` },
         onUploadProgress: (progressEvent) => {
           if (!progressEvent.total) return;
-
-          const percentCompleted = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-
-          setUploadProgress(percentCompleted);
+          setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
         }
       });
 
       setSuccess('Video uploaded successfully! Awaiting moderation approval.');
       setStatusMessage('');
-
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 2000);
+      setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
       console.error('Browser compression/upload error:', err);
       setError(
@@ -234,9 +195,7 @@ function VideoUpload({ user }) {
     }
   };
 
-  const currentProgress = statusMessage.includes('Uploading')
-    ? uploadProgress
-    : compressionProgress;
+  const currentProgress = statusMessage.includes('Uploading') ? uploadProgress : compressionProgress;
 
   return (
     <>
@@ -258,34 +217,17 @@ function VideoUpload({ user }) {
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Video Title:</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter video title"
-                required
-                disabled={uploading}
-              />
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Enter video title" required disabled={uploading} />
             </div>
 
             <div className="form-group">
               <label>Description:</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter video description (optional)"
-                rows="4"
-                disabled={uploading}
-              />
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Enter video description (optional)" rows="4" disabled={uploading} />
             </div>
 
             <div className="form-group">
               <label>Video Type:</label>
-              <select
-                value={videoType}
-                onChange={(e) => setVideoType(e.target.value)}
-                disabled={uploading}
-              >
+              <select value={videoType} onChange={(e) => setVideoType(e.target.value)} disabled={uploading}>
                 <option value="free">Free</option>
                 <option value="premium">Premium</option>
                 <option value="pay-per-view">Pay-Per-View</option>
@@ -295,61 +237,29 @@ function VideoUpload({ user }) {
             {videoType !== 'free' && (
               <div className="form-group">
                 <label>Price ($):</label>
-                <input
-                  type="number"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="Enter price"
-                  step="0.01"
-                  min="0.99"
-                  disabled={uploading}
-                />
+                <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Enter price" step="0.01" min="0.99" disabled={uploading} />
               </div>
             )}
 
-            <div
-              className="upload-area"
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => document.getElementById('fileInput').click()}
-            >
+            <div className="upload-area" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onClick={() => document.getElementById('fileInput').click()}>
               <div className="icon">📹</div>
               <p>Click to upload or drag and drop</p>
               <p style={{ fontSize: '12px' }}>MP4, WebM, or MOV (Max 5GB)</p>
-              {file && (
-                <p style={{ color: '#4CAF50', marginTop: '10px' }}>
-                  📁 {file.name} ({formatBytes(file.size)})
-                </p>
-              )}
+              {file && <p style={{ color: '#4CAF50', marginTop: '10px' }}>📁 {file.name} ({formatBytes(file.size)})</p>}
             </div>
 
-            <input
-              id="fileInput"
-              type="file"
-              accept="video/*"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-              disabled={uploading}
-            />
+            <input id="fileInput" type="file" accept="video/*" onChange={handleFileChange} style={{ display: 'none' }} disabled={uploading} />
 
             {uploading && (
               <div>
                 <p>{statusMessage || 'Preparing video...'} {currentProgress}%</p>
                 <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${currentProgress}%` }}
-                  ></div>
+                  <div className="progress-fill" style={{ width: `${currentProgress}%` }}></div>
                 </div>
               </div>
             )}
 
-            <button
-              type="submit"
-              className="btn"
-              disabled={uploading || !file}
-            >
+            <button type="submit" className="btn" disabled={uploading || !file}>
               {uploading ? 'Processing video...' : 'Upload Video'}
             </button>
           </form>
