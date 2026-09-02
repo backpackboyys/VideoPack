@@ -2,10 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
-const { spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
-const ffmpegPath = require("ffmpeg-static");
 
 const {
   authMiddleware,
@@ -26,22 +23,13 @@ const videosDirectory = path.join(
   "videos"
 );
 
-const temporaryVideosDirectory = path.join(
-  videosDirectory,
-  "temporary"
-);
-
 fs.mkdirSync(videosDirectory, {
-  recursive: true
-});
-
-fs.mkdirSync(temporaryVideosDirectory, {
   recursive: true
 });
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, temporaryVideosDirectory);
+    cb(null, videosDirectory);
   },
 
   filename: (req, file, cb) => {
@@ -78,116 +66,13 @@ const upload = multer({
   }
 });
 
-let preparedFfmpegPath;
-
-async function getExecutableFfmpegPath() {
-  if (!ffmpegPath) {
-    throw new Error("FFmpeg binary was not found");
-  }
-
-  if (preparedFfmpegPath) {
-    return preparedFfmpegPath;
-  }
-
-  const temporaryFfmpegPath = path.join(
-    os.tmpdir(),
-    `backpackboyys-ffmpeg-${process.pid}`
-  );
-
-  try {
-    await fs.promises.access(
-      temporaryFfmpegPath,
-      fs.constants.X_OK
-    );
-  } catch (error) {
-    await fs.promises.copyFile(
-      ffmpegPath,
-      temporaryFfmpegPath
-    );
-
-    await fs.promises.chmod(
-      temporaryFfmpegPath,
-      0o755
-    );
-  }
-
-  preparedFfmpegPath = temporaryFfmpegPath;
-
-  return preparedFfmpegPath;
-}
-
-function convertVideo(inputPath, outputPath) {
-  return new Promise(async (resolve, reject) => {
-    let executablePath;
-
-    try {
-      executablePath = await getExecutableFfmpegPath();
-    } catch (error) {
-      reject(error);
-      return;
-    }
-
-    const ffmpeg = spawn(executablePath, [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      inputPath,
-      "-map_metadata",
-      "-1",
-      "-vf",
-      "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "medium",
-      "-crf",
-      "24",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      "-y",
-      outputPath
-    ]);
-
-    let errorOutput = "";
-
-    ffmpeg.stderr.on("data", (data) => {
-      errorOutput += data.toString();
-    });
-
-    ffmpeg.on("error", (error) => {
-      reject(error);
-    });
-
-    ffmpeg.on("close", (code) => {
-      if (code === 0 && fs.existsSync(outputPath)) {
-        resolve();
-        return;
-      }
-
-      reject(
-        new Error(
-          `FFmpeg conversion failed. Exit code: ${code}. ${errorOutput}`
-        )
-      );
-    });
-  });
-}
-
-// Upload, compress, convert, and queue a video for moderation.
+// Upload a video directly and queue it for moderation.
 router.post(
   "/upload",
   authMiddleware,
   upload.single("video"),
   async (req, res) => {
     let conn;
-    let convertedPath;
 
     try {
       if (!req.file) {
@@ -219,24 +104,6 @@ router.post(
         });
       }
 
-      conn.release();
-      conn = null;
-
-      const finalFileName = `${uuidv4()}.mp4`;
-      convertedPath = path.join(
-        videosDirectory,
-        finalFileName
-      );
-
-      await convertVideo(
-        req.file.path,
-        convertedPath
-      );
-
-      await fs.promises.unlink(req.file.path);
-
-      conn = await db.getConnection();
-
       const [result] = await conn.execute(
         `
         INSERT INTO videos
@@ -256,7 +123,7 @@ router.post(
           req.user.id,
           title || null,
           description || null,
-          finalFileName,
+          req.file.filename,
           videoType || "free",
           price || null
         ]
@@ -264,24 +131,20 @@ router.post(
 
       res.status(201).json({
         message:
-          "Video compressed and uploaded successfully. Awaiting moderation approval.",
+          "Video uploaded successfully. Awaiting moderation approval.",
         videoId: result.insertId,
         status: "pending",
-        fileName: finalFileName
+        fileName: req.file.filename
       });
     } catch (error) {
-      console.error("Video upload/compression error:", error);
+      console.error("Video upload error:", error);
 
       if (req.file?.path) {
         await fs.promises.unlink(req.file.path).catch(() => {});
       }
 
-      if (convertedPath) {
-        await fs.promises.unlink(convertedPath).catch(() => {});
-      }
-
       res.status(500).json({
-        error: "Upload or video compression failed"
+        error: "Video upload failed"
       });
     } finally {
       if (conn) {
