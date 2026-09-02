@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
 const ffmpegPath = require("ffmpeg-static");
@@ -77,15 +78,56 @@ const upload = multer({
   }
 });
 
+let preparedFfmpegPath;
+
+async function getExecutableFfmpegPath() {
+  if (!ffmpegPath) {
+    throw new Error("FFmpeg binary was not found");
+  }
+
+  if (preparedFfmpegPath) {
+    return preparedFfmpegPath;
+  }
+
+  const temporaryFfmpegPath = path.join(
+    os.tmpdir(),
+    `backpackboyys-ffmpeg-${process.pid}`
+  );
+
+  try {
+    await fs.promises.access(
+      temporaryFfmpegPath,
+      fs.constants.X_OK
+    );
+  } catch (error) {
+    await fs.promises.copyFile(
+      ffmpegPath,
+      temporaryFfmpegPath
+    );
+
+    await fs.promises.chmod(
+      temporaryFfmpegPath,
+      0o755
+    );
+  }
+
+  preparedFfmpegPath = temporaryFfmpegPath;
+
+  return preparedFfmpegPath;
+}
+
 function convertVideo(inputPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    if (!ffmpegPath) {
-      return reject(
-        new Error("FFmpeg binary was not found")
-      );
+  return new Promise(async (resolve, reject) => {
+    let executablePath;
+
+    try {
+      executablePath = await getExecutableFfmpegPath();
+    } catch (error) {
+      reject(error);
+      return;
     }
 
-    const ffmpeg = spawn(ffmpegPath, [
+    const ffmpeg = spawn(executablePath, [
       "-hide_banner",
       "-loglevel",
       "error",
