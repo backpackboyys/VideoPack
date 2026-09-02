@@ -2,7 +2,9 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
+const ffmpegPath = require("ffmpeg-static");
 
 const {
   authMiddleware,
@@ -23,13 +25,22 @@ const videosDirectory = path.join(
   "videos"
 );
 
+const temporaryVideosDirectory = path.join(
+  videosDirectory,
+  "temporary"
+);
+
 fs.mkdirSync(videosDirectory, {
+  recursive: true
+});
+
+fs.mkdirSync(temporaryVideosDirectory, {
   recursive: true
 });
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, videosDirectory);
+    cb(null, temporaryVideosDirectory);
   },
 
   filename: (req, file, cb) => {
@@ -66,13 +77,75 @@ const upload = multer({
   }
 });
 
-// Upload a video.
+function convertVideo(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath) {
+      return reject(
+        new Error("FFmpeg binary was not found")
+      );
+    }
+
+    const ffmpeg = spawn(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      inputPath,
+      "-map_metadata",
+      "-1",
+      "-vf",
+      "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-crf",
+      "24",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-y",
+      outputPath
+    ]);
+
+    let errorOutput = "";
+
+    ffmpeg.stderr.on("data", (data) => {
+      errorOutput += data.toString();
+    });
+
+    ffmpeg.on("error", (error) => {
+      reject(error);
+    });
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `FFmpeg conversion failed. Exit code: ${code}. ${errorOutput}`
+        )
+      );
+    });
+  });
+}
+
+// Upload, compress, convert, and queue a video for moderation.
 router.post(
   "/upload",
   authMiddleware,
   upload.single("video"),
   async (req, res) => {
     let conn;
+    let convertedPath;
 
     try {
       if (!req.file) {
@@ -104,6 +177,24 @@ router.post(
         });
       }
 
+      conn.release();
+      conn = null;
+
+      const finalFileName = `${uuidv4()}.mp4`;
+      convertedPath = path.join(
+        videosDirectory,
+        finalFileName
+      );
+
+      await convertVideo(
+        req.file.path,
+        convertedPath
+      );
+
+      await fs.promises.unlink(req.file.path);
+
+      conn = await db.getConnection();
+
       const [result] = await conn.execute(
         `
         INSERT INTO videos
@@ -123,7 +214,7 @@ router.post(
           req.user.id,
           title || null,
           description || null,
-          req.file.filename,
+          finalFileName,
           videoType || "free",
           price || null
         ]
@@ -131,20 +222,24 @@ router.post(
 
       res.status(201).json({
         message:
-          "Video uploaded successfully. Awaiting moderation approval.",
+          "Video compressed and uploaded successfully. Awaiting moderation approval.",
         videoId: result.insertId,
         status: "pending",
-        fileName: req.file.filename
+        fileName: finalFileName
       });
     } catch (error) {
-      console.error("Video upload error:", error);
+      console.error("Video upload/compression error:", error);
 
       if (req.file?.path) {
         await fs.promises.unlink(req.file.path).catch(() => {});
       }
 
+      if (convertedPath) {
+        await fs.promises.unlink(convertedPath).catch(() => {});
+      }
+
       res.status(500).json({
-        error: "Upload failed"
+        error: "Upload or video compression failed"
       });
     } finally {
       if (conn) {
