@@ -14,6 +14,17 @@ function AdminDashboard({ user }) {
   const [message, setMessage] = useState("");
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState(null);
+  const [editingVideoId, setEditingVideoId] = useState(null);
+  const [savingVideo, setSavingVideo] = useState(false);
+  const [videoForm, setVideoForm] = useState({
+    title: "",
+    description: "",
+    video_type: "free",
+    price: "",
+    thumbnail_path: "",
+    duration: "",
+    is_public: true
+  });
   const [userForm, setUserForm] = useState({
     username: "",
     email: "",
@@ -89,7 +100,7 @@ function AdminDashboard({ user }) {
       );
       setMessage("Video rejected successfully.");
       setVideos((current) => current.map((video) => video.id === videoId
-        ? { ...video, approval_status: "rejected", is_approved: 0 }
+        ? { ...video, approval_status: "rejected", is_approved: 0, rejection_reason: reason }
         : video));
     } catch (err) {
       setError(err.response?.data?.error || "Failed to reject video");
@@ -108,8 +119,75 @@ function AdminDashboard({ user }) {
       await axios.delete(`/api/admin/videos/${videoId}`, authConfig());
       setMessage("Video and associated files deleted successfully.");
       setVideos((current) => current.filter((video) => video.id !== videoId));
+      if (editingVideoId === videoId) setEditingVideoId(null);
     } catch (err) {
       setError(err.response?.data?.error || "Failed to delete video");
+    }
+  };
+
+  const startEditingVideo = (video) => {
+    setError("");
+    setMessage("");
+    setEditingVideoId(video.id);
+    setVideoForm({
+      title: video.title || "",
+      description: video.description || "",
+      video_type: video.video_type || "free",
+      price: video.price ?? "",
+      thumbnail_path: video.thumbnail_path || "",
+      duration: video.duration ?? "",
+      is_public: video.is_public === undefined ? true : Boolean(video.is_public)
+    });
+  };
+
+  const cancelEditingVideo = () => {
+    setEditingVideoId(null);
+    setSavingVideo(false);
+  };
+
+  const saveVideo = async (event, videoId) => {
+    event.preventDefault();
+
+    if (!videoForm.title.trim()) {
+      setError("Video title is required.");
+      return;
+    }
+
+    if (videoForm.video_type !== "free" && videoForm.price === "") {
+      setError("Price is required for paid videos.");
+      return;
+    }
+
+    try {
+      setSavingVideo(true);
+      setError("");
+      setMessage("");
+
+      const payload = {
+        title: videoForm.title.trim(),
+        description: videoForm.description,
+        video_type: videoForm.video_type,
+        price: videoForm.price === "" ? null : Number(videoForm.price),
+        thumbnail_path: videoForm.thumbnail_path.trim() || null,
+        duration: videoForm.duration === "" ? null : Number(videoForm.duration),
+        is_public: Boolean(videoForm.is_public)
+      };
+
+      const response = await axios.patch(
+        `/api/admin/videos/${videoId}`,
+        payload,
+        authConfig()
+      );
+
+      setVideos((current) => current.map((video) =>
+        video.id === videoId ? response.data.video : video
+      ));
+      setMessage("Video details updated successfully. Its approval status was preserved.");
+      setEditingVideoId(null);
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update video details");
+    } finally {
+      setSavingVideo(false);
     }
   };
 
@@ -248,51 +326,20 @@ function AdminDashboard({ user }) {
           {showUserForm && (
             <form onSubmit={saveUser} style={{ marginTop: "20px", maxWidth: "520px" }}>
               <label>Username</label>
-              <input
-                value={userForm.username}
-                onChange={(event) => setUserForm({ ...userForm, username: event.target.value })}
-                required
-                minLength={2}
-              />
-
+              <input value={userForm.username} onChange={(event) => setUserForm({ ...userForm, username: event.target.value })} required minLength={2} />
               <label>Email</label>
-              <input
-                type="email"
-                value={userForm.email}
-                onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
-                required
-              />
-
+              <input type="email" value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} required />
               <label>{editingUserId ? "New password (leave blank to keep current)" : "Password"}</label>
-              <input
-                type="password"
-                value={userForm.password}
-                onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
-                required={!editingUserId}
-                minLength={8}
-              />
-
+              <input type="password" value={userForm.password} onChange={(event) => setUserForm({ ...userForm, password: event.target.value })} required={!editingUserId} minLength={8} />
               <label>Role</label>
-              <select
-                value={userForm.role}
-                onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}
-              >
+              <select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
-
               <label style={{ display: "block", margin: "12px 0" }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(userForm.age_verified)}
-                  onChange={(event) => setUserForm({ ...userForm, age_verified: event.target.checked })}
-                />{" "}
-                Age verified
+                <input type="checkbox" checked={Boolean(userForm.age_verified)} onChange={(event) => setUserForm({ ...userForm, age_verified: event.target.checked })} /> Age verified
               </label>
-
-              <button className="btn" type="submit">
-                {editingUserId ? "Save Changes" : "Create User"}
-              </button>
+              <button className="btn" type="submit">{editingUserId ? "Save Changes" : "Create User"}</button>
             </form>
           )}
 
@@ -303,30 +350,15 @@ function AdminDashboard({ user }) {
           ) : (
             <div style={{ overflowX: "auto", marginTop: "20px" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th align="left">Username</th>
-                    <th align="left">Email</th>
-                    <th align="left">Role</th>
-                    <th align="left">Status</th>
-                    <th align="left">Actions</th>
-                  </tr>
-                </thead>
+                <thead><tr><th align="left">Username</th><th align="left">Email</th><th align="left">Role</th><th align="left">Status</th><th align="left">Actions</th></tr></thead>
                 <tbody>
                   {users.map((account) => (
                     <tr key={account.id}>
-                      <td>{account.username}</td>
-                      <td>{account.email}</td>
-                      <td>{account.role}</td>
-                      <td>{account.active ? "Active" : "Deactivated"}</td>
+                      <td>{account.username}</td><td>{account.email}</td><td>{account.role}</td><td>{account.active ? "Active" : "Deactivated"}</td>
                       <td>
                         <button className="btn" onClick={() => startEditingUser(account)}>Edit</button>{" "}
-                        <button className="btn btn-secondary" onClick={() => setUserActive(account, !account.active)}>
-                          {account.active ? "Deactivate" : "Reactivate"}
-                        </button>{" "}
-                        <button className="btn btn-danger" onClick={() => permanentlyDeleteUser(account)}>
-                          Delete
-                        </button>
+                        <button className="btn btn-secondary" onClick={() => setUserActive(account, !account.active)}>{account.active ? "Deactivate" : "Reactivate"}</button>{" "}
+                        <button className="btn btn-danger" onClick={() => permanentlyDeleteUser(account)}>Delete</button>
                       </td>
                     </tr>
                   ))}
@@ -351,31 +383,60 @@ function AdminDashboard({ user }) {
                     <h3>{video.title || "Untitled video"}</h3>
                     <p><strong>ID:</strong> {video.id}</p>
                     <p><strong>Uploader:</strong> {video.username || "Unknown"}</p>
-                    {video.description && <p>{video.description}</p>}
                     <p><strong>Status:</strong> {video.approval_status || "pending"}</p>
                     <p><strong>Views:</strong> {video.view_count || 0}</p>
+                    {video.description && <p>{video.description}</p>}
 
-                    <div style={{ display: "flex", gap: "10px", marginTop: "15px", flexWrap: "wrap" }}>
-                      {video.approval_status === "pending" && (
-                        <>
-                          <button className="btn" onClick={() => approveVideo(video.id)}>Approve</button>
-                          <button className="btn btn-danger" onClick={() => rejectVideo(video.id)}>Reject</button>
-                        </>
-                      )}
-                      <button className="btn btn-danger" onClick={() => deleteVideo(video.id, video.title)}>
-                        Delete Permanently
-                      </button>
-                    </div>
+                    {editingVideoId === video.id ? (
+                      <form onSubmit={(event) => saveVideo(event, video.id)} style={{ marginTop: "20px" }}>
+                        <label>Title</label>
+                        <input value={videoForm.title} onChange={(event) => setVideoForm({ ...videoForm, title: event.target.value })} required maxLength={255} disabled={savingVideo} />
+
+                        <label>Description</label>
+                        <textarea value={videoForm.description} onChange={(event) => setVideoForm({ ...videoForm, description: event.target.value })} rows="5" disabled={savingVideo} />
+
+                        <label>Video type</label>
+                        <select value={videoForm.video_type} onChange={(event) => setVideoForm({ ...videoForm, video_type: event.target.value })} disabled={savingVideo}>
+                          <option value="free">Free</option>
+                          <option value="premium">Premium</option>
+                          <option value="pay-per-view">Pay-Per-View</option>
+                        </select>
+
+                        <label>Price</label>
+                        <input type="number" min="0" step="0.01" value={videoForm.price} onChange={(event) => setVideoForm({ ...videoForm, price: event.target.value })} disabled={savingVideo} />
+
+                        <label>Duration in seconds</label>
+                        <input type="number" min="0" step="1" value={videoForm.duration} onChange={(event) => setVideoForm({ ...videoForm, duration: event.target.value })} disabled={savingVideo} />
+
+                        <label>Thumbnail path</label>
+                        <input value={videoForm.thumbnail_path} onChange={(event) => setVideoForm({ ...videoForm, thumbnail_path: event.target.value })} placeholder="Optional thumbnail path" disabled={savingVideo} />
+
+                        <label style={{ display: "block", margin: "12px 0" }}>
+                          <input type="checkbox" checked={Boolean(videoForm.is_public)} onChange={(event) => setVideoForm({ ...videoForm, is_public: event.target.checked })} disabled={savingVideo} /> Public
+                        </label>
+
+                        <button className="btn" type="submit" disabled={savingVideo}>{savingVideo ? "Saving..." : "Save Video Details"}</button>{" "}
+                        <button className="btn btn-secondary" type="button" onClick={cancelEditingVideo} disabled={savingVideo}>Cancel</button>
+                      </form>
+                    ) : (
+                      <div style={{ display: "flex", gap: "10px", marginTop: "15px", flexWrap: "wrap" }}>
+                        <button className="btn" onClick={() => startEditingVideo(video)}>Edit Details</button>
+                        {video.approval_status === "pending" && (
+                          <>
+                            <button className="btn" onClick={() => approveVideo(video.id)}>Approve</button>
+                            <button className="btn btn-danger" onClick={() => rejectVideo(video.id)}>Reject</button>
+                          </>
+                        )}
+                        <button className="btn btn-danger" onClick={() => deleteVideo(video.id, video.title)}>Delete Permanently</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          <button className="btn btn-secondary" style={{ marginTop: "25px", maxWidth: "250px" }} onClick={() => {
-            loadVideos();
-            loadUsers();
-          }}>
+          <button className="btn btn-secondary" style={{ marginTop: "25px", maxWidth: "250px" }} onClick={() => { loadVideos(); loadUsers(); }}>
             Refresh Dashboard
           </button>
         </section>
