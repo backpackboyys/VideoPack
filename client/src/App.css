@@ -246,7 +246,7 @@
       rgba(10, 10, 18, 0.62),
       rgba(10, 10, 18, 0.78)
     ),
-    url('/assets/Videos-BG-Img.png');
+    url('./assets/Videos-BG-Img.png');
   background-position: center top;
   background-repeat: no-repeat;
   background-size: cover;
@@ -268,7 +268,7 @@
       rgba(8, 8, 12, 0.35),
       rgba(8, 8, 12, 0.05)
     ),
-    url('/assets/Videos-Top-Img.png');
+    url('./assets/Videos-Top-Img.png');
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
