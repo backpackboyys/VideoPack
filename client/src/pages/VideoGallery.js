@@ -7,10 +7,7 @@ function getVideoUrl(filePath) {
     return "";
   }
 
-  if (
-    filePath.startsWith("http://") ||
-    filePath.startsWith("https://")
-  ) {
+  if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
     return filePath;
   }
 
@@ -43,9 +40,9 @@ function VideoGallery({ user }) {
       const response = await axios.get("/api/videos", {
         headers: token
           ? {
-              Authorization: `Bearer ${token}`
+              Authorization: `Bearer ${token}`,
             }
-          : {}
+          : {},
       });
 
       const videoList = Array.isArray(response.data)
@@ -85,8 +82,12 @@ function VideoGallery({ user }) {
     );
   });
 
+  const publicPath = process.env.PUBLIC_URL || "";
+
   return (
-    <div className="page-container">
+    <div className="page-container browse-video-page">
+      {/* Background image comes from CSS (.browse-video-page) */}
+
       <nav className="navbar">
         <h1>Video Gallery</h1>
 
@@ -101,7 +102,16 @@ function VideoGallery({ user }) {
         </div>
       </nav>
 
-      <main className="container">
+      {/* Top banner */}
+      <section
+        className="browse-video-banner"
+        aria-label="Browse videos banner"
+        style={{
+          backgroundImage: `url(${publicPath}/images/Videos-Top-Img.png)`,
+        }}
+      />
+
+      <main className="container browse-video-content">
         <div
           style={{
             display: "flex",
@@ -109,7 +119,7 @@ function VideoGallery({ user }) {
             alignItems: "center",
             gap: "15px",
             flexWrap: "wrap",
-            marginBottom: "25px"
+            marginBottom: "25px",
           }}
         >
           <h2>Browse Videos</h2>
@@ -123,22 +133,14 @@ function VideoGallery({ user }) {
               padding: "10px 14px",
               borderRadius: "6px",
               border: "1px solid #ccc",
-              minWidth: "240px"
+              minWidth: "240px",
             }}
           />
         </div>
 
-        {loading && (
-          <div className="loading">
-            Loading videos...
-          </div>
-        )}
+        {loading && <div className="loading">Loading videos...</div>}
 
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
+        {error && <div className="error">{error}</div>}
 
         {!loading && !error && filteredVideos.length === 0 && (
           <div className="info">
@@ -154,10 +156,7 @@ function VideoGallery({ user }) {
               const videoUrl = getVideoUrl(video.file_path);
 
               return (
-                <article
-                  className="video-card"
-                  key={video.id}
-                >
+                <article className="video-card" key={video.id}>
                   <div className="video-thumbnail">
                     {videoUrl ? (
                       <video
@@ -170,40 +169,27 @@ function VideoGallery({ user }) {
                             : undefined
                         }
                       >
-                        <source
-                          src={videoUrl}
-                          type="video/mp4"
-                        />
+                        <source src={videoUrl} type="video/mp4" />
                         Your browser does not support video playback.
                       </video>
                     ) : (
-                      <div className="info">
-                        Video file unavailable
-                      </div>
+                      <div className="info">Video file unavailable</div>
                     )}
                   </div>
 
                   <div className="video-info">
                     <h3>{video.title || "Untitled video"}</h3>
 
-                    {video.description && (
-                      <p>{video.description}</p>
-                    )}
+                    {video.description && <p>{video.description}</p>}
 
                     <p>
                       Uploaded by:{" "}
-                      <strong>
-                        {video.username || "Unknown"}
-                      </strong>
+                      <strong>{video.username || "Unknown"}</strong>
                     </p>
 
-                    <p>
-                      Views: {video.view_count || 0}
-                    </p>
+                    <p>Views: {video.view_count || 0}</p>
 
-                    <p>
-                      Type: {video.video_type || "free"}
-                    </p>
+                    <p>Type: {video.video_type || "free"}</p>
                   </div>
                 </article>
               );
